@@ -60,7 +60,7 @@ def activations(model, x):
 
 def check(ppm, acts):
     for n, ref in enumerate(acts):
-        r = subprocess.run([ROOT / "resnet", "-d", str(n), ppm], capture_output=True)
+        r = subprocess.run([ROOT / "resnet", "-d", str(n), ppm], capture_output=True, cwd=ROOT)
         got = np.frombuffer(r.stdout, np.float32)
         if r.returncode != 0 or got.size != ref.size:
             print(f"{n:2d} {POINTS[n]:9s} no match: exit {r.returncode}, "
@@ -75,7 +75,7 @@ def main():
     args = [a for a in sys.argv[1:] if a != "--check"]
     if len(args) != 1:
         sys.exit("usage: uv run python tools/ref.py image.ppm [--check]")
-    ppm = Path(args[0])
+    ppm = Path(args[0]).resolve()
     acts = activations(load_model(), normalize(ppm))
     out = ROOT / "ref" / ppm.stem
     out.mkdir(parents=True, exist_ok=True)

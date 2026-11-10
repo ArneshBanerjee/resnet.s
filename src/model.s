@@ -94,6 +94,40 @@ _forward:
     cmp     x20, #8
     b.lo    .Lblock
 
+    // global average pool: 7x7x512 -> 512
+    ADDR    x0, feat
+    ADDR    x1, act_x
+    bl      avgpool
+    mov     x0, #11
+    ADDR    x1, feat
+    mov     x2, #512
+    bl      debug
+
+    // fc: the same GEMM, with the 512 features as row 0 of one A panel
+    ADDR    x0, col
+    ADDR    x1, feat
+    mov     x2, #512
+1:  ldr     s0, [x1], #4             // one row of the panel: feature, 11 zeros
+    st1     {v0.4s}, [x0], #16
+    movi    v0.16b, #0
+    stp     q0, q0, [x0], #32
+    subs    x2, x2, #1
+    b.ne    1b
+    ADDR    x9, _convs
+    ldp     x2, x3, [x9, #N_CONV*16] // packed fc weights, bias
+    ADDR    x0, _logits
+    ADDR    x1, col
+    mov     x4, #1
+    mov     x5, #N_CLASSES
+    mov     x6, #512
+    mov     x7, #0
+    mov     x8, #0
+    bl      _gemm
+    mov     x0, #12
+    ADDR    x1, _logits
+    mov     x2, #N_CLASSES
+    bl      debug
+
     ldp     x23, x24, [sp, #48]
     ldp     x21, x22, [sp, #32]
     ldp     x19, x20, [sp, #16]
@@ -307,6 +341,26 @@ maxpool:
     b.lo    1b
     ret
 
+// avgpool(x0 = out [512], x1 = in [7][7][512]): mean over the 49 pixels. Leaf.
+avgpool:
+    FCONST  s2, 0x42440000           // 49.0
+    dup     v2.4s, v2.s[0]
+    mov     x2, #0                   // byte offset of 4 channels
+1:  add     x3, x1, x2
+    movi    v0.16b, #0
+    mov     x4, #49
+2:  ldr     q1, [x3]
+    fadd    v0.4s, v0.4s, v1.4s
+    add     x3, x3, #512*4
+    subs    x4, x4, #1
+    b.ne    2b
+    fdiv    v0.4s, v0.4s, v2.4s
+    str     q0, [x0, x2]
+    add     x2, x2, #16
+    cmp     x2, #512*4
+    b.lo    1b
+    ret
+
 // debug(x0 = point, x1 = floats, x2 = count): if -d chose this point,
 // write the floats to stdout and exit.
 debug:
@@ -348,5 +402,9 @@ norm_const:
 // act_x: the main path. act_t: inside a block. act_d: downsample output.
 .zerofill __DATA,__bss,act_t,ACT_FLOATS*4,6
 .zerofill __DATA,__bss,act_d,ACT_FLOATS*4,6
+.zerofill __DATA,__bss,feat,512*4,4
+// fc output: one 12-row panel. Row 0 is the logits.
+.globl _logits
+.zerofill __DATA,__bss,_logits,12*N_CLASSES*4,4
 // im2col output, big enough for the stem (Kp = 148).
 .zerofill __DATA,__bss,col,COL_FLOATS*4,6

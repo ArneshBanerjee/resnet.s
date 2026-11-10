@@ -1,4 +1,4 @@
-SRC := src/main.s src/load.s src/model.s src/gemm.s
+SRC := src/main.s src/load.s src/model.s src/gemm.s src/math.s
 OBJ := $(SRC:src/%.s=build/%.o)
 SDK := $(shell xcrun --show-sdk-path)
 HF  := https://huggingface.co/timm/resnet18.tv_in1k/resolve/main

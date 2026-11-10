@@ -55,12 +55,74 @@ _main:
     ADDR    x0, path_model
     bl      map_file
     bl      _load_model
+    ADDR    x0, path_labels
+    bl      map_file
+    mov     x25, x0                  // labels.txt: one class name per line
+    add     x26, x0, x1
     mov     x0, x21
     bl      map_file
     bl      read_ppm
     ADDR    x3, _image
     str     x0, [x3]
     bl      _forward
+
+    // top 5 classes: "  87.12%  label"
+    ADDR    x0, _logits
+    mov     x1, #N_CLASSES
+    bl      _softmax
+    ADDR    x0, _logits
+    mov     x1, #N_CLASSES
+    ADDR    x2, top_idx
+    ADDR    x3, top_p
+    bl      _top5
+    mov     x27, #0
+1:  ADDR    x0, top_p
+    ldr     s0, [x0, x27, lsl #2]
+    FCONST  s1, 0x461c4000           // 10000.0
+    fmul    s0, s0, s1
+    fcvtns  w28, s0                  // percent * 100, rounded
+    mov     x0, #100
+    udiv    x24, x28, x0             // whole percent
+    msub    x28, x24, x0, x28        // hundredths
+    cmp     x24, #100                // right-align to 3 digits
+    b.hs    2f
+    bl      print_space
+    cmp     x24, #10
+    b.hs    2f
+    bl      print_space
+2:  mov     x1, x24
+    mov     x0, #1
+    bl      print_uint
+    ADDR    x1, s_dot
+    mov     x0, #1
+    bl      print_str
+    mov     x0, #10
+    udiv    x1, x28, x0
+    mov     x0, #1
+    bl      print_uint
+    mov     x0, #10
+    udiv    x1, x28, x0
+    msub    x1, x1, x0, x28
+    mov     x0, #1
+    bl      print_uint
+    ADDR    x1, s_pct
+    mov     x0, #1
+    bl      print_str
+    ADDR    x0, top_idx
+    ldr     w2, [x0, x27, lsl #2]
+    mov     x0, x25
+    mov     x1, x26
+    bl      find_line
+    mov     x2, x1
+    mov     x1, x0
+    mov     x0, #1
+    SYSCALL SYS_WRITE
+    ADDR    x1, s_newline
+    mov     x0, #1
+    bl      print_str
+    add     x27, x27, #1
+    cmp     x27, #5
+    b.lo    1b
     mov     x0, #0
     SYSCALL SYS_EXIT
 
@@ -154,6 +216,31 @@ ppm_uint:
 6:  cbz     x4, .Lppm_bad
     ret
 
+// find_line(x0 = text, x1 = end, x2 = line number) -> x0 = start of the
+// line, x1 = its length without the newline. Leaf.
+find_line:
+1:  cbz     x2, 3f                   // skip x2 lines
+2:  cmp     x0, x1
+    b.hs    .Llabels_bad
+    ldrb    w3, [x0], #1
+    cmp     w3, #'\n'
+    b.ne    2b
+    sub     x2, x2, #1
+    b       1b
+3:  mov     x3, x0
+4:  cmp     x3, x1
+    b.hs    5f
+    ldrb    w4, [x3]
+    cmp     w4, #'\n'
+    b.eq    5f
+    add     x3, x3, #1
+    b       4b
+5:  sub     x1, x3, x0
+    ret
+.Llabels_bad:
+    ADDR    x1, s_bad_labels
+    b       _fail
+
 // map_file(x0 = path) -> x0 = read-only mapping, x1 = size
 map_file:
     stp     x29, x30, [sp, #-48]!
@@ -205,6 +292,11 @@ _fail:
     mov     x0, #1
     SYSCALL SYS_EXIT
 
+print_space:
+    ADDR    x1, s_space
+    mov     x0, #1
+    b       print_str
+
 // print_str(x0 = fd, x1 = NUL-terminated string)
 print_str:
     mov     x2, #0
@@ -248,6 +340,11 @@ parse_uint:
 
 .section __TEXT,__cstring,cstring_literals
 path_model:   .asciz "model.safetensors"
+path_labels:  .asciz "labels.txt"
+s_bad_labels: .asciz "resnet: labels.txt has fewer than 1000 lines\n"
+s_dot:        .asciz "."
+s_pct:        .asciz "%  "
+s_space:      .asciz " "
 s_nofile:     .asciz "resnet: cannot load "
 s_bad_ppm:    .asciz "resnet: the image must be a 224x224 binary PPM (P6, maxval 255)\n"
 s_usage:      .asciz "usage: resnet [-d N] image.ppm\n"
@@ -259,3 +356,6 @@ s_newline:    .asciz "\n"
 _debug:       .quad -1               // debug point from -d, or -1
 .globl _image
 _image:       .quad 0                // RGB bytes in the mapped PPM
+
+.zerofill __DATA,__bss,top_idx,5*4,2
+.zerofill __DATA,__bss,top_p,5*4,2
