@@ -1,0 +1,18 @@
+# Model file from Hugging Face (47 MB). Get it with: make weights
+model.safetensors
+
+# Test images. Get them with: uv run python tools/fetch_images.py
+images/
+*.ppm
+*.jpg
+*.jpeg
+*.png
+
+# Build output
+build/
+/resnet
+
+# Python (only for tools/)
+.venv/
+__pycache__/
+ref/

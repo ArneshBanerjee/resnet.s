@@ -1,0 +1,10 @@
+[project]
+name = "resnet-asm"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "pillow",
+    "timm",
+    "torch",
+    "torchvision",
+]
