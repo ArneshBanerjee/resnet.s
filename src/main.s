@@ -1,10 +1,14 @@
 // resnet.s: ResNet-18 image classification in AArch64 assembly.
 // No libc calls: all I/O is raw Darwin syscalls (svc #0x80).
 //
-// usage: resnet [-d N] image.ppm
+// usage: resnet [-d N] [-b N] image.ppm
 //   -d N  write the raw float activations (f32, NHWC) after debug point N
 //         to stdout: 0 input, 1 stem, 2 maxpool, 3-10 the 8 basic blocks,
 //         11 avgpool, 12 logits
+//   -b N  run the forward pass N times and print each time (benchmark)
+//
+// Times go to stderr: [resnet.s] load X ms, forward Y ms. They come from
+// the ARM generic timer (cntvct_el0).
 .include "macros.inc"
 
 .text
@@ -15,6 +19,7 @@ _main:
     mov     x19, x0                  // argc
     mov     x20, x1                  // argv
     mov     x21, #0                  // image path
+    mov     x22, #1                  // forward passes
     mov     x24, #1
 .Largs:
     cmp     x24, x19
@@ -23,11 +28,14 @@ _main:
     ldrb    w1, [x0]
     cmp     w1, #'-'
     b.ne    .Lpath
-    ldrb    w1, [x0, #1]             // the only flag is -d N
+    ldrb    w25, [x0, #1]            // -d N or -b N
     ldrb    w2, [x0, #2]
-    cmp     w1, #'d'
-    b.ne    .Lusage
     cbnz    w2, .Lusage
+    cmp     w25, #'d'
+    b.eq    .Lflag
+    cmp     w25, #'b'
+    b.ne    .Lusage
+.Lflag:
     add     x24, x24, #1
     cmp     x24, x19
     b.ge    .Lusage
@@ -37,7 +45,12 @@ _main:
     cmp     w1, #9
     b.hi    .Lusage
     bl      parse_uint
-    cmp     x0, #N_DEBUG
+    cmp     w25, #'b'
+    b.ne    1f
+    cbz     x0, .Lusage
+    mov     x22, x0
+    b       .Lnext
+1:  cmp     x0, #N_DEBUG
     b.hs    .Lusage
     ADDR    x1, _debug
     str     x0, [x1]
@@ -52,9 +65,12 @@ _main:
     cbz     x21, .Lusage
 
     // the original Hugging Face file, read as it is
+    mrs     x23, cntvct_el0
     ADDR    x0, path_model
     bl      map_file
     bl      _load_model
+    mrs     x0, cntvct_el0
+    sub     x23, x0, x23             // load time, in timer ticks
     ADDR    x0, path_labels
     bl      map_file
     mov     x25, x0                  // labels.txt: one class name per line
@@ -64,7 +80,25 @@ _main:
     bl      read_ppm
     ADDR    x3, _image
     str     x0, [x3]
+    ADDR    x1, s_load
+    mov     x0, #2
+    bl      print_str
+    mov     x0, x23
+    bl      print_ms
+    ADDR    x1, s_forward
+    mov     x0, #2
+    bl      print_str
+    mov     x24, x22
+2:  mrs     x27, cntvct_el0
     bl      _forward
+    mrs     x0, cntvct_el0
+    sub     x0, x0, x27
+    bl      print_ms
+    subs    x24, x24, #1
+    b.ne    2b
+    ADDR    x1, s_ms
+    mov     x0, #2
+    bl      print_str
 
     // top 5 classes: "  87.12%  label"
     ADDR    x0, _logits
@@ -216,6 +250,39 @@ ppm_uint:
 6:  cbz     x4, .Lppm_bad
     ret
 
+// print_ms(x0 = timer ticks): write " 12.34" (milliseconds) to stderr.
+print_ms:
+    stp     x29, x30, [sp, #-32]!
+    mov     x29, sp
+    stp     x19, x20, [sp, #16]
+    mrs     x1, cntfrq_el0
+    MOV32   x2, 100000
+    mul     x0, x0, x2
+    udiv    x19, x0, x1              // hundredths of a millisecond
+    ADDR    x1, s_space
+    mov     x0, #2
+    bl      print_str
+    mov     x20, #100
+    udiv    x1, x19, x20
+    mov     x0, #2
+    bl      print_uint
+    ADDR    x1, s_dot
+    mov     x0, #2
+    bl      print_str
+    udiv    x1, x19, x20
+    msub    x19, x1, x20, x19        // two digits after the point
+    mov     x20, #10
+    udiv    x1, x19, x20
+    mov     x0, #2
+    bl      print_uint
+    udiv    x1, x19, x20
+    msub    x1, x1, x20, x19
+    mov     x0, #2
+    bl      print_uint
+    ldp     x19, x20, [sp, #16]
+    ldp     x29, x30, [sp], #32
+    ret
+
 // find_line(x0 = text, x1 = end, x2 = line number) -> x0 = start of the
 // line, x1 = its length without the newline. Leaf.
 find_line:
@@ -347,7 +414,10 @@ s_pct:        .asciz "%  "
 s_space:      .asciz " "
 s_nofile:     .asciz "resnet: cannot load "
 s_bad_ppm:    .asciz "resnet: the image must be a 224x224 binary PPM (P6, maxval 255)\n"
-s_usage:      .asciz "usage: resnet [-d N] image.ppm\n"
+s_usage:      .asciz "usage: resnet [-d N] [-b N] image.ppm\n"
+s_load:       .asciz "[resnet.s] load"
+s_forward:    .asciz " ms, forward"
+s_ms:         .asciz " ms\n"
 s_newline:    .asciz "\n"
 
 .data
