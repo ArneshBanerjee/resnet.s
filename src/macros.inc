@@ -35,6 +35,11 @@
 .equ N_CONV,     20                  // stem + 16 block convs + 3 downsample convs
 .equ N_DEBUG,    13                  // debug points for -d (see src/main.s)
 
+// Buffer sizes. GEMM rows are padded to a multiple of 12.
+.equ ACT_FLOATS,   12552*64            // stem output: 112*112 -> 12552 rows
+.equ COL_FLOATS,   12552*148           // stem im2col: Kp = 7*7*3 -> 148
+.equ PACKED_BYTES, 48 << 20            // all folded, packed weights (46.8 MB)
+
 // _tensors (src/load.s): pointers into model.safetensors.
 //   5 per conv, in forward order: conv weight, then BN weight, bias,
 //   running_mean, running_var. Then fc.weight and fc.bias.

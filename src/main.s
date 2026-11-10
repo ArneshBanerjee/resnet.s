@@ -55,46 +55,12 @@ _main:
     ADDR    x0, path_model
     bl      map_file
     bl      _load_model
-    mov     x22, x0                  // tensors in the header
     mov     x0, x21
     bl      map_file
     bl      read_ppm
     ADDR    x3, _image
     str     x0, [x3]
-    mov     x23, x1                  // width
-    mov     x24, x2                  // height
-
-    // milestone 1: report what was found
-    ADDR    x1, s_model
-    mov     x0, #1
-    bl      print_str
-    mov     x1, x22
-    mov     x0, #1
-    bl      print_uint
-    ADDR    x1, s_tensors
-    mov     x0, #1
-    bl      print_str
-    mov     x1, #N_TENSORS
-    mov     x0, #1
-    bl      print_uint
-    ADDR    x1, s_used
-    mov     x0, #1
-    bl      print_str
-    ADDR    x1, s_image
-    mov     x0, #1
-    bl      print_str
-    mov     x1, x23
-    mov     x0, #1
-    bl      print_uint
-    ADDR    x1, s_x
-    mov     x0, #1
-    bl      print_str
-    mov     x1, x24
-    mov     x0, #1
-    bl      print_uint
-    ADDR    x1, s_newline
-    mov     x0, #1
-    bl      print_str
+    bl      _forward
     mov     x0, #0
     SYSCALL SYS_EXIT
 
@@ -285,11 +251,6 @@ path_model:   .asciz "model.safetensors"
 s_nofile:     .asciz "resnet: cannot load "
 s_bad_ppm:    .asciz "resnet: the image must be a 224x224 binary PPM (P6, maxval 255)\n"
 s_usage:      .asciz "usage: resnet [-d N] image.ppm\n"
-s_model:      .asciz "model.safetensors: "
-s_tensors:    .asciz " tensors, "
-s_used:       .asciz " used\n"
-s_image:      .asciz "image: "
-s_x:          .asciz "x"
 s_newline:    .asciz "\n"
 
 .data
