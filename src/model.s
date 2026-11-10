@@ -8,8 +8,11 @@
 // forward(): run the network on _image.
 .globl _forward
 _forward:
-    stp     x29, x30, [sp, #-16]!
+    stp     x29, x30, [sp, #-64]!
     mov     x29, sp
+    stp     x19, x20, [sp, #16]
+    stp     x21, x22, [sp, #32]
+    stp     x23, x24, [sp, #48]
     ADDR    x0, act_x
     ADDR    x1, _image
     ldr     x1, [x1]
@@ -43,7 +46,58 @@ _forward:
     MOV32   x2, 56*56*64
     bl      debug
 
-    ldp     x29, x30, [sp], #16
+    // 8 basic blocks (layer1 to layer4), each in place on act_x:
+    //   t = relu(conv1(x)), x = relu(conv2(t) + x), where x is first
+    //   replaced by downsample(x) (1x1 stride 2 conv + BN) if the block has one.
+    mov     x19, #56                 // H
+    mov     x20, #0                  // block
+.Lblock:
+    ADDR    x9, blocks
+    add     x9, x9, x20, lsl #1
+    ldrb    w21, [x9]                // conv1 index (conv2 is the next one)
+    ldrb    w22, [x9, #1]            // downsample conv index, or 0
+    mov     x0, x21
+    ADDR    x1, act_x
+    mov     x2, x19
+    ADDR    x3, act_t
+    mov     x4, #0
+    mov     x5, #1
+    bl      conv
+    mov     x23, x0                  // OH
+    ADDR    x24, act_x               // residual
+    cbz     x22, 1f
+    mov     x0, x22
+    ADDR    x1, act_x
+    mov     x2, x19
+    ADDR    x3, act_d
+    mov     x4, #0
+    mov     x5, #0
+    bl      conv
+    ADDR    x24, act_d
+1:  add     x0, x21, #1
+    ADDR    x1, act_t
+    mov     x2, x23
+    ADDR    x3, act_x
+    mov     x4, x24
+    mov     x5, #1
+    bl      conv
+    mov     x19, x23
+    ADDR    x9, _conv_shape          // debug point 3 + block: OH*OH*cout
+    add     x9, x9, x21, lsl #3
+    ldrh    w2, [x9, #2]
+    mul     x2, x2, x19
+    mul     x2, x2, x19
+    add     x0, x20, #3
+    ADDR    x1, act_x
+    bl      debug
+    add     x20, x20, #1
+    cmp     x20, #8
+    b.lo    .Lblock
+
+    ldp     x23, x24, [sp, #48]
+    ldp     x21, x22, [sp, #32]
+    ldp     x19, x20, [sp, #16]
+    ldp     x29, x30, [sp], #64
     ret
 
 // conv(x0 = conv index, x1 = in [H][H][cin], x2 = H, x3 = out,
@@ -277,6 +331,12 @@ debug:
     SYSCALL SYS_EXIT
 
 .section __TEXT,__const
+// The 8 basic blocks: conv1 index in _conv_shape, downsample conv index or 0.
+blocks:
+    .byte  1, 0,   3, 0              // layer1
+    .byte  5, 7,   8, 0              // layer2
+    .byte 10, 12, 13, 0              // layer3
+    .byte 15, 17, 18, 0              // layer4
 .p2align 2
 norm_const:
     .float 0.485, 0.456, 0.406       // ImageNet mean
@@ -285,6 +345,8 @@ norm_const:
 // Activations: buffers big enough for the stem output
 // (112*112 pixels rounded up to 12 rows, x 64 channels).
 .zerofill __DATA,__bss,act_x,ACT_FLOATS*4,6
+// act_x: the main path. act_t: inside a block. act_d: downsample output.
 .zerofill __DATA,__bss,act_t,ACT_FLOATS*4,6
+.zerofill __DATA,__bss,act_d,ACT_FLOATS*4,6
 // im2col output, big enough for the stem (Kp = 148).
 .zerofill __DATA,__bss,col,COL_FLOATS*4,6
