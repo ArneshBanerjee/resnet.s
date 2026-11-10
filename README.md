@@ -57,20 +57,6 @@ image (resize to 256, center crop to 224). Python is only for the tools.
   stdout: 0 input, 1 stem, 2 max pool, 3 to 10 the 8 blocks, 11 average pool, 12 logits.
 - `-b N` runs the forward pass `N` times and prints each time.
 
-## Verify
-
-```bash
-uv run python tools/fetch_images.py
-```
-
-```bash
-uv run python tools/verify.py
-```
-
-This compares `./resnet` with PyTorch on 30 Imagenette images. The top-5
-indices must match in order. The result is `ALL PASS`.
-`tools/ref.py image.ppm --check` compares all 13 debug points.
-
 ## How it works
 
 | File | Contents |
@@ -93,3 +79,7 @@ there is no allocator.
 - One thread, fp32, NEON only. PyTorch is faster here because it uses AMX.
 - The input must already be 224x224. Resize and crop are in Python.
 - Peak memory is about 108 MB: the file mapping plus a 48 MB packed copy of the weights.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
